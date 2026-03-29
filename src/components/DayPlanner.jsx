@@ -1,9 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { usePersistentState } from '../lib/hooks.js';
-import { getSupabase } from '../lib/supabaseClient.js';
-import { fetchPlannerRange, upsertSlot as upsertSlotServer, deleteSlot as deleteSlotServer, subscribePlanner } from '../lib/plannerApi.js';
-import { useAuth } from '../lib/AuthProvider.jsx';
-import { getMyGroups, createGroup, createInvite, acceptInvite } from '../lib/collabApi.js';
 
 function hoursRange(start = 6, end = 22) {
   const arr = [];
@@ -11,24 +7,32 @@ function hoursRange(start = 6, end = 22) {
   return arr;
 }
 
-function dateKeyLocal(d = new Date()) { const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; }
+function dateKeyLocal(d = new Date()) { 
+  const y=d.getFullYear(); 
+  const m=String(d.getMonth()+1).padStart(2,'0'); 
+  const day=String(d.getDate()).padStart(2,'0'); 
+  return `${y}-${m}-${day}`; 
+}
+
 function fmtDateInput(k) { return k; }
 
-function addDays(d, delta) { const nd = new Date(d + 'T00:00:00'); nd.setDate(nd.getDate() + delta); return nd; }
-function labelFor(key) { const d = new Date(key + 'T00:00:00'); return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); }
+function addDays(d, delta) { 
+  const nd = new Date(d + 'T00:00:00'); 
+  nd.setDate(nd.getDate() + delta); 
+  return nd; 
+}
+
+function labelFor(key) { 
+  const d = new Date(key + 'T00:00:00'); 
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); 
+}
 
 export default function DayPlanner() {
-  const { user } = useAuth();
   const [myPlanner, setMyPlanner] = usePersistentState('planner', {});
-  const [groupPlanner, setGroupPlanner] = useState({});
   const [selected, setSelected] = usePersistentState('planner:date', dateKeyLocal());
   const [days, setDays] = usePersistentState('planner:span', 5);
   const [todos, setTodos] = usePersistentState('todos', []);
-  const [groups, setGroups] = useState([]);
-  const [groupId, setGroupId] = useState('');
-  const [inviteInput, setInviteInput] = useState('');
-  const supabase = getSupabase();
-  const useCloud = !!supabase;
+  const [editing, setEditing] = useState(null);
 
   function getDaySlots(map, dayKey) { return map[dayKey] || {}; }
   function slotFor(map, dayKey, hour) {
@@ -46,26 +50,20 @@ export default function DayPlanner() {
     return todo.id;
   }
 
-  function setSlotGeneric(setMap, map, scope, dayKey, hour, text) {
+  function setSlotGeneric(setMap, map, dayKey, hour, text) {
     const prev = slotFor(map, dayKey, hour);
     const nextDay = { ...getDaySlots(map, dayKey), [hour]: { text, done: prev.done, todoId: prev.todoId || null } };
     setMap({ ...map, [dayKey]: nextDay });
-    if (useCloud && scope) {
-      upsertSlotServer(dayKey, hour, { text, done: prev.done, todoId: prev.todoId || null }, scope);
-    }
     const t = text.trim();
     if (t && prev.todoId) {
       setTodos(todos.map(td => td.id === prev.todoId ? { ...td, text: t, updatedAt: Date.now() } : td));
     }
   }
 
-  function setDoneGeneric(setMap, map, scope, dayKey, hour, done) {
+  function setDoneGeneric(setMap, map, dayKey, hour, done) {
     const prev = slotFor(map, dayKey, hour);
     const nextDay = { ...getDaySlots(map, dayKey), [hour]: { text: prev.text, done, todoId: prev.todoId || null } };
     setMap({ ...map, [dayKey]: nextDay });
-    if (useCloud && scope) {
-      upsertSlotServer(dayKey, hour, { text: prev.text, done, todoId: prev.todoId || null }, scope);
-    }
     if (prev.todoId) {
       setTodos(todos.map(td => td.id === prev.todoId ? { ...td, done, updatedAt: Date.now() } : td));
     } else if (prev.text && prev.text.trim()) {
@@ -80,219 +78,87 @@ export default function DayPlanner() {
     setSelected(dateKeyLocal(d));
   }
 
-  function onDateChange(e) { setSelected(e.target.value); }
-
-  // Load groups for current user
-  useEffect(() => {
-    if (!useCloud || !user?.id) return;
-    (async () => {
-      const gs = await getMyGroups();
-      setGroups(gs);
-      if (!groupId && gs.length) setGroupId(gs[0].id);
-    })();
-  }, [useCloud, user?.id]);
-
-  async function onCreateGroup() {
-    const name = prompt('Group name');
-    if (!name) return;
-    const g = await createGroup(name);
-    if (g) { const gs = await getMyGroups(); setGroups(gs); setGroupId(g.id); }
-  }
-
-  async function onInviteLink() {
-    if (!groupId) return;
-    const token = await createInvite(groupId);
-    if (token) {
-      const url = `${window.location.origin}#invite=${token}`;
-      try { await navigator.clipboard.writeText(url); alert('Invite link copied to clipboard'); } catch { alert(url); }
-    }
-  }
-
-  async function onAcceptInvite() {
-    const token = inviteInput.trim();
-    if (!token) return;
-    const res = await acceptInvite(token);
-    if (res.ok) {
-      const gs = await getMyGroups(); setGroups(gs);
-      setGroupId(res.group_id);
-      setInviteInput('');
-    } else {
-      alert('Invalid or expired invite');
-    }
-  }
-
-  const dayKeys = Array.from({ length: Number(days) }, (_, i) => dateKeyLocal(addDays(selected, i)));
-  const [editing, setEditing] = useState(null);
-
-  // Load my planner (user scope)
-  useEffect(() => {
-    if (!useCloud || !user?.id) return;
-    let mounted = true;
-    (async () => {
-      const data = await fetchPlannerRange(selected, days, { type: 'user', id: user.id });
-      if (mounted && data) setMyPlanner(prev => ({ ...prev, ...data }));
-    })();
-    return () => { mounted = false; };
-  }, [useCloud, user?.id, selected, days]);
-
-  // Load group planner (group scope)
-  useEffect(() => {
-    if (!useCloud || !groupId) return;
-    let mounted = true;
-    (async () => {
-      const data = await fetchPlannerRange(selected, days, { type: 'group', id: groupId });
-      if (mounted && data) setGroupPlanner(prev => ({ ...prev, ...data }));
-    })();
-    return () => { mounted = false; };
-  }, [useCloud, groupId, selected, days]);
   function addTodoFromSlotGeneric(setMap, map, dayKey, hour) {
     const slot = slotFor(map, dayKey, hour);
     const t = slot.text.trim();
-    if (!t) return;
-    if (slot.todoId) return;
+    if (!t || slot.todoId) return;
     createLinkedTodo(setMap, map, dayKey, hour, t, slot.done);
   }
-  function deleteLinkedTodoGeneric(setMap, map, scope, dayKey, hour) {
+
+  function deleteLinkedTodoGeneric(setMap, map, dayKey, hour) {
     const slot = slotFor(map, dayKey, hour);
     if (!slot.todoId) return;
     setTodos(todos.filter(td => td.id !== slot.todoId));
     const day = { ...getDaySlots(map, dayKey) };
     delete day[hour];
     setMap({ ...map, [dayKey]: day });
-    if (useCloud && scope) {
-      deleteSlotServer(dayKey, hour, scope);
-    }
   }
 
-  // Realtime for my planner
-  useEffect(() => {
-    if (!useCloud || !user?.id) return;
-    const unsub = subscribePlanner((payload) => {
-      const row = payload.new || payload.old;
-      const dayKey = row?.day; const hour = row?.hour;
-      if (!dayKey || hour == null) return;
-      setMyPlanner(prev => {
-        const next = { ...prev }; const day = { ...(next[dayKey] || {}) };
-        if (payload.eventType === 'DELETE') delete day[hour]; else day[hour] = { text: row.text || '', done: !!row.done, todoId: row.todo_id || null };
-        next[dayKey] = day; return next;
-      });
-    }, { type: 'user', id: user.id });
-    return () => unsub && unsub();
-  }, [useCloud, user?.id]);
-
-  // Realtime for group planner
-  useEffect(() => {
-    if (!useCloud || !groupId) return;
-    const unsub = subscribePlanner((payload) => {
-      const row = payload.new || payload.old;
-      const dayKey = row?.day; const hour = row?.hour;
-      if (!dayKey || hour == null) return;
-      setGroupPlanner(prev => {
-        const next = { ...prev }; const day = { ...(next[dayKey] || {}) };
-        if (payload.eventType === 'DELETE') delete day[hour]; else day[hour] = { text: row.text || '', done: !!row.done, todoId: row.todo_id || null };
-        next[dayKey] = day; return next;
-      });
-    }, { type: 'group', id: groupId });
-    return () => unsub && unsub();
-  }, [useCloud, groupId]);
+  const dayKeys = Array.from({ length: Number(days) }, (_, i) => dateKeyLocal(addDays(selected, i)));
 
   return (
-    <div className="section">
-      <div className="panel">
-        <h3 className="panel-title">My Planner</h3>
-        <div className="planner-toolbar row wrap">
-          <button className="btn secondary" onClick={() => changeDate(-Number(days))}>Previous</button>
-          <button className="btn secondary" onClick={() => setSelected(dateKeyLocal())}>Today</button>
-          <button className="btn secondary" onClick={() => changeDate(Number(days))}>Next</button>
-          <input className="input date-input" type="date" value={fmtDateInput(selected)} onChange={onDateChange} />
-          <select className="select days-span-select" value={days} onChange={e => setDays(Number(e.target.value))}>
-            <option value={3}>3 days</option>
-            <option value={5}>5 days</option>
-            <option value={7}>7 days</option>
+    <div className="flex flex-col gap-6">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm">
+        <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Time Blocking Planner</h3>
+        
+        <div className="flex flex-wrap items-center gap-3 mb-8 bg-slate-50 dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700">
+          <button className="px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors" onClick={() => changeDate(-Number(days))}>Previous</button>
+          <button className="px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors" onClick={() => setSelected(dateKeyLocal())}>Today</button>
+          <button className="px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-600 transition-colors" onClick={() => changeDate(Number(days))}>Next</button>
+          
+          <input className="px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none focus:border-purple-500 text-slate-700 dark:text-white" type="date" value={fmtDateInput(selected)} onChange={e => setSelected(e.target.value)} />
+          
+          <select className="px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl text-sm outline-none text-slate-700 dark:text-white" value={days} onChange={e => setDays(Number(e.target.value))}>
+            <option value={3}>3 days view</option>
+            <option value={5}>5 days view</option>
+            <option value={7}>7 days view</option>
           </select>
         </div>
 
-        <div className="planner-matrix-wrapper">
-          <div className={`planner-matrix days-${days}`}>
-            <div className="planner-matrix-header">
-              <div className="planner-time"></div>
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 hide-scrollbar">
+          <div className="min-w-[800px]">
+            {/* Header */}
+            <div className="flex bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+              <div className="w-20 p-3 text-right text-xs font-semibold text-slate-500">Time</div>
               {dayKeys.map(k => (
-                <div className="planner-day-label" key={k}>{labelFor(k)}</div>
+                <div key={k} className="flex-1 p-3 text-center text-sm font-bold text-slate-700 dark:text-slate-300 border-l border-slate-200 dark:border-slate-700">{labelFor(k)}</div>
               ))}
             </div>
-            {hoursRange().map(h => (
-              <div className="planner-matrix-row" key={h}>
-                <div className="planner-time">{String(h).padStart(2, '0')}:00</div>
-                {dayKeys.map(k => {
-                  const slot = slotFor(myPlanner, k, h);
-                  const key = 'me|' + k + '|' + h;
-                  const showAdd = editing === key && slot.text.trim() && !slot.todoId;
-                  const showDelete = editing === key && !!slot.todoId;
-                  const scope = useCloud && user?.id ? { type: 'user', id: user.id } : null;
-                  return (
-                    <div key={'me-' + k + '-' + h} className={`planner-slot ${slot.done ? 'planner-done' : ''} ${slot.todoId ? 'has-task' : ''} ${editing === key ? 'slot-editing' : ''}`}>
-                      <input className="planner-checkbox" type="checkbox" checked={slot.done} onChange={e => setDoneGeneric(setMyPlanner, myPlanner, scope, k, h, e.target.checked)} />
-                      <textarea className="planner-cell" value={slot.text} onChange={e => setSlotGeneric(setMyPlanner, myPlanner, scope, k, h, e.target.value)} onFocus={() => setEditing(key)} onBlur={() => setTimeout(() => { setEditing(curr => curr === key ? null : curr); }, 120)} />
-                      {showAdd && (
-                        <button className="btn success small planner-add-btn" onMouseDown={e => e.preventDefault()} onClick={() => addTodoFromSlotGeneric(setMyPlanner, myPlanner, k, h)}>Add</button>
-                      )}
-                      {showDelete && (
-                        <button className="btn danger small planner-del-btn" onMouseDown={e => e.preventDefault()} onClick={() => deleteLinkedTodoGeneric(setMyPlanner, myPlanner, scope, k, h)}>Delete</button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="row between wrap section-gap">
-          <h3 className="panel-title">Shared Planner</h3>
-          <div className="row wrap">
-            <select className="select collab-select" value={groupId} onChange={e => setGroupId(e.target.value)}>
-              <option value="">Select group</option>
-              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-            </select>
-            <button className="btn secondary" onClick={onCreateGroup}>Create group</button>
-            <button className="btn secondary" onClick={onInviteLink} disabled={!groupId}>Invite link</button>
-            <input className="input invite-input" placeholder="Paste invite token" value={inviteInput} onChange={e => setInviteInput(e.target.value)} />
-            <button className="btn" onClick={onAcceptInvite}>Join</button>
-          </div>
-        </div>
-
-        {!groupId ? (
-          <div className="small">Select or create a group to view its shared schedule.</div>
-        ) : (
-          <div className="planner-matrix-wrapper">
-            <div className={`planner-matrix days-${days}`}>
-              <div className="planner-matrix-header">
-                <div className="planner-time"></div>
-                {dayKeys.map(k => (
-                  <div className="planner-day-label" key={k}>{labelFor(k)}</div>
-                ))}
-              </div>
+            
+            {/* Grid Body */}
+            <div className="flex flex-col bg-white dark:bg-slate-900 relative">
               {hoursRange().map(h => (
-                <div className="planner-matrix-row" key={h}>
-                  <div className="planner-time">{String(h).padStart(2, '0')}:00</div>
+                <div key={h} className="flex border-b border-slate-100 dark:border-slate-800/50">
+                  <div className="w-20 p-3 text-right text-xs font-medium text-slate-400 select-none pt-4">{String(h).padStart(2, '0')}:00</div>
                   {dayKeys.map(k => {
-                    const slot = slotFor(groupPlanner, k, h);
-                    const key = 'grp|' + k + '|' + h;
-                    const showAdd = editing === key && slot.text.trim() && !slot.todoId;
-                    const showDelete = editing === key && !!slot.todoId;
-                    const scope = useCloud && groupId ? { type: 'group', id: groupId } : null;
+                    const slot = slotFor(myPlanner, k, h);
+                    const key = 'me|' + k + '|' + h;
+                    const isEditing = editing === key;
+                    
                     return (
-                      <div key={'grp-' + k + '-' + h} className={`planner-slot ${slot.done ? 'planner-done' : ''} ${slot.todoId ? 'has-task' : ''} ${editing === key ? 'slot-editing' : ''}`}>
-                        <input className="planner-checkbox" type="checkbox" checked={slot.done} onChange={e => setDoneGeneric(setGroupPlanner, groupPlanner, scope, k, h, e.target.checked)} />
-                        <textarea className="planner-cell" value={slot.text} onChange={e => setSlotGeneric(setGroupPlanner, groupPlanner, scope, k, h, e.target.value)} onFocus={() => setEditing(key)} onBlur={() => setTimeout(() => { setEditing(curr => curr === key ? null : curr); }, 120)} />
-                        {showAdd && (
-                          <button className="btn success small planner-add-btn" onMouseDown={e => e.preventDefault()} onClick={() => addTodoFromSlotGeneric(setGroupPlanner, groupPlanner, k, h)}>Add</button>
-                        )}
-                        {showDelete && (
-                          <button className="btn danger small planner-del-btn" onMouseDown={e => e.preventDefault()} onClick={() => deleteLinkedTodoGeneric(setGroupPlanner, groupPlanner, scope, k, h)}>Delete</button>
-                        )}
+                      <div key={k + h} className="flex-1 p-2 border-l border-slate-100 dark:border-slate-800/50 relative group">
+                        <div className={`flex gap-2 rounded-xl border transition-all h-full min-h-[60px] p-2 ${slot.text ? 'bg-purple-50/50 dark:bg-purple-900/10 border-purple-200 dark:border-purple-800/50' : 'bg-transparent border-transparent hover:border-slate-200 dark:hover:border-slate-700'} ${isEditing ? 'ring-2 ring-purple-500 border-transparent bg-white dark:bg-slate-800' : ''} ${slot.done ? 'opacity-60 bg-slate-50 dark:bg-slate-800 grayscale' : ''}`}>
+                          
+                          {slot.text && (
+                            <input type="checkbox" className="mt-1 w-4 h-4 rounded text-purple-500 focus:ring-purple-500 cursor-pointer shrink-0" checked={slot.done} onChange={e => setDoneGeneric(setMyPlanner, myPlanner, k, h, e.target.checked)} />
+                          )}
+                          
+                          <textarea 
+                            className={`flex-1 w-full resize-none bg-transparent outline-none text-sm leading-tight text-slate-700 dark:text-slate-300 ${slot.done ? 'line-through text-slate-400' : ''}`} 
+                            value={slot.text} 
+                            placeholder="" 
+                            onChange={e => setSlotGeneric(setMyPlanner, myPlanner, k, h, e.target.value)} 
+                            onFocus={() => setEditing(key)} 
+                            onBlur={() => setTimeout(() => setEditing(curr => curr === key ? null : curr), 150)} 
+                          />
+                          
+                          {isEditing && slot.text.trim() && !slot.todoId && (
+                            <button className="absolute bottom-2 right-2 text-xs bg-purple-500 text-white px-2 py-1 rounded shadow-sm hover:bg-purple-600" onMouseDown={e => e.preventDefault()} onClick={() => addTodoFromSlotGeneric(setMyPlanner, myPlanner, k, h)}>+ Task</button>
+                          )}
+                          {isEditing && slot.todoId && (
+                            <button className="absolute bottom-2 right-2 text-xs bg-red-500 text-white px-2 py-1 rounded shadow-sm hover:bg-red-600" onMouseDown={e => e.preventDefault()} onClick={() => deleteLinkedTodoGeneric(setMyPlanner, myPlanner, k, h)}>Unlink</button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -300,7 +166,7 @@ export default function DayPlanner() {
               ))}
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
