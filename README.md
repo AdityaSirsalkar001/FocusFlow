@@ -39,7 +39,7 @@ Deep-dive into your productivity trends with visual heatmaps and intensity chart
 
 ---
 
-## 📈 Optimization Highlights (Resume-Ready)
+## 📈 Optimization Highlights
 
 - **Lazy Loading:** Implemented `React.lazy()` and `<Suspense>` for route-based code splitting, reducing initial bundle size and improving Time to Interactive (TTI).  
 - **Responsive Design:** Built a fully fluid UI using Tailwind CSS for seamless experience across devices.  
