@@ -3,7 +3,7 @@
 **FocusFlow** is a high-performance, local-first productivity ecosystem designed to help developers and students master their time.  
 Built with a **"Bento Box" inspired dashboard**, it integrates deep-work timers, task management with automated priority sorting, and a time-blocking day planner into a single, seamless interface.
 
-🚀 **[Live Demo](https://focusflow-app.vercel.app)** | 📂 **[Source Code](https://github.com/AdityaSirsalkar001/FocusFlow)**
+🚀 **[Live Demo](https://project1-nine-phi.vercel.app/)** | 📂 **[Source Code](https://github.com/AdityaSirsalkar001/FocusFlow)**
 
 ---
 
@@ -64,3 +64,9 @@ npm install
 ```bash
 npm run dev
 ```
+
+---
+
+## 🌟 Support
+
+If you like this project, consider giving it a ⭐ on GitHub!
