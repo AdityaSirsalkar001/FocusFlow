@@ -62,7 +62,7 @@ export default function Analytics() {
   }
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm animate-[fadeIn_0.4s_ease-out]">
+    <div className="panel p-6 md:p-8 animate-[fadeIn_0.4s_ease-out]">
       <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-8">Performance Analytics</h3>
       
       <div className="flex flex-col gap-8">

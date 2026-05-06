@@ -6,10 +6,16 @@ export default function Settings() {
   const [settings, setSettings] = usePersistentState('timer:settings', {
     focusMin: 25, shortBreakMin: 5, longBreakMin: 15, roundsUntilLong: 4, autoStartBreaks: false, autoStartFocus: true
   });
+  const [lazyLoading, setLazyLoading] = usePersistentState('prodapp:lazy-loading', true);
+
+  function updateLazyLoading(enabled) {
+    setLazyLoading(enabled);
+    window.dispatchEvent(new CustomEvent('focusflow:lazy-loading-change', { detail: { enabled } }));
+  }
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm max-w-4xl mx-auto">
-      <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-8">Settings</h3>
+    <div className="panel max-w-4xl mx-auto p-6 md:p-8">
+      <h3 className="text-2xl font-black text-zinc-950 dark:text-white mb-8">Settings</h3>
       
       <div className="flex flex-col gap-10">
         
@@ -22,6 +28,19 @@ export default function Settings() {
               <div className="text-sm text-slate-500">Toggle light or dark mode</div>
             </div>
             <div className="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl"><ThemeToggle /></div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl">
+            <div>
+              <div className="font-medium text-slate-900 dark:text-white">Lazy Loading</div>
+              <div className="text-sm text-slate-500">
+                {lazyLoading ? 'Load each section only when opened.' : 'Preload all sections for faster navigation.'}
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" className="sr-only peer" checked={lazyLoading} onChange={(e) => updateLazyLoading(e.target.checked)} />
+              <div className="w-12 h-7 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all after:shadow-sm dark:border-slate-600 peer-checked:bg-teal-500"></div>
+            </label>
           </div>
         </div>
 

@@ -10,11 +10,18 @@ function nextDue(date, recurring) {
   return d.getTime();
 }
 
-// Helper to format datetime-local inputs
 function formatDateTime(dateString) {
   if (!dateString) return '';
   const d = new Date(dateString);
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+function dueState(item) {
+  if (!item.deadline || item.done) return { label: 'No deadline', tone: 'text-zinc-400' };
+  const diff = new Date(item.deadline).getTime() - Date.now();
+  if (diff < 0) return { label: 'Overdue', tone: 'text-rose-500' };
+  if (diff < 86400000) return { label: 'Due today', tone: 'text-amber-500' };
+  return { label: new Date(item.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), tone: 'text-sky-500' };
 }
 
 export default function TodoList() {
@@ -22,10 +29,8 @@ export default function TodoList() {
   const [text, setText] = useState('');
   const [newPriority, setNewPriority] = useState('Medium');
   const [newDeadline, setNewDeadline] = useState('');
-  
   const [filter, setFilter] = useState('all');
   const [planner, setPlanner] = usePersistentState('planner', {});
-
   const [celebrate, setCelebrate] = useState(false);
   const [pulseId, setPulseId] = useState(null);
 
@@ -33,15 +38,7 @@ export default function TodoList() {
     const t = text.trim();
     if (!t) return;
     const now = Date.now();
-    setItems([{ 
-      id: crypto.randomUUID(), 
-      text: t, 
-      done: false, 
-      createdAt: now, 
-      updatedAt: now, 
-      priority: newPriority,
-      deadline: newDeadline || null
-    }, ...items]);
+    setItems([{ id: crypto.randomUUID(), text: t, done: false, createdAt: now, updatedAt: now, priority: newPriority, deadline: newDeadline || null }, ...items]);
     setText('');
     setNewPriority('Medium');
     setNewDeadline('');
@@ -85,7 +82,9 @@ export default function TodoList() {
     setPlanner(newPlanner);
 
     if (willBeDone) {
-      setPulseId(id); triggerCelebrate(); setTimeout(() => setPulseId(null), 800);
+      setPulseId(id);
+      triggerCelebrate();
+      setTimeout(() => setPulseId(null), 800);
     }
   }
 
@@ -104,10 +103,10 @@ export default function TodoList() {
     });
     if (touched) setPlanner(newPlanner);
   }
-  
+
   function edit(id, value) { setItems(items.map(i => i.id === id ? { ...i, text: value, updatedAt: Date.now() } : i)); }
   function setItem(id, patch) { setItems(items.map(i => i.id === id ? { ...i, ...patch, updatedAt: Date.now() } : i)); }
-  
+
   function clearCompleted() {
     const toRemove = new Set(items.filter(i => i.done).map(i => i.id));
     setItems(items.filter(i => !i.done));
@@ -126,127 +125,136 @@ export default function TodoList() {
     if (touched) setPlanner(newPlanner);
   }
 
-  // Automated Priority-Sorting & Deadline Algorithm
   const shown = useMemo(() => {
-    let list = items;
+    let list = [...items];
     if (filter === 'active') list = list.filter(i => !i.done);
     if (filter === 'done') list = list.filter(i => i.done);
-    
-    const priorityWeight = { 'High': 3, 'Medium': 2, 'Low': 1 };
-
+    const priorityWeight = { High: 3, Medium: 2, Low: 1 };
     return list.sort((a, b) => {
-      // 1. Active tasks always above completed tasks
       if (a.done !== b.done) return a.done ? 1 : -1;
-      
-      // 2. If both are done, sort by recently updated
       if (a.done) return b.updatedAt - a.updatedAt;
-
-      // 3. Sort by Priority (High > Medium > Low)
       const weightA = priorityWeight[a.priority || 'Medium'] || 2;
       const weightB = priorityWeight[b.priority || 'Medium'] || 2;
       if (weightA !== weightB) return weightB - weightA;
-
-      // 4. If priority is the same, sort by Deadline (earliest first)
-      if (a.deadline && b.deadline) {
-        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
-      }
-      if (a.deadline) return -1; // Tasks with deadlines go above tasks without deadlines
+      if (a.deadline && b.deadline) return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+      if (a.deadline) return -1;
       if (b.deadline) return 1;
-
-      // 5. Fallback: newest created first
       return b.createdAt - a.createdAt;
     });
   }, [items, filter]);
 
-  // Color coding for priorities
+  const total = items.length;
+  const done = items.filter(i => i.done).length;
+  const active = total - done;
+  const high = items.filter(i => !i.done && i.priority === 'High').length;
+  const overdue = items.filter(i => i.deadline && !i.done && new Date(i.deadline) < new Date()).length;
+  const completion = total === 0 ? 0 : Math.round((done / total) * 100);
+
   const priorityColors = {
-    'High': 'text-red-500 bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800',
-    'Medium': 'text-amber-500 bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800',
-    'Low': 'text-blue-500 bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800'
+    High: 'text-rose-600 bg-rose-50 border-rose-200 dark:text-rose-300 dark:bg-rose-500/10 dark:border-rose-400/25',
+    Medium: 'text-amber-600 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-500/10 dark:border-amber-400/25',
+    Low: 'text-sky-600 bg-sky-50 border-sky-200 dark:text-sky-300 dark:bg-sky-500/10 dark:border-sky-400/25',
   };
 
+  const metrics = [
+    { label: 'Total', value: total, dot: 'bg-zinc-950 dark:bg-white' },
+    { label: 'Active', value: active, dot: 'bg-teal-500' },
+    { label: 'High Priority', value: high, dot: 'bg-rose-500' },
+    { label: 'Overdue', value: overdue, dot: 'bg-amber-500' },
+  ];
+
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm">
-      <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
-        <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Tasks</h3>
-        <button className="text-red-500 hover:text-red-600 font-medium text-sm transition-colors" onClick={clearCompleted}>Clear Completed</button>
-      </div>
-
-      {/* Advanced Quick Add Toolbar */}
-      <div className="flex flex-col gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-800 mb-8">
-        <div className="flex flex-1 items-center gap-2">
-          <input className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-all" placeholder="What needs to be done?" value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addItem(); }} />
-          <button className="p-3 bg-teal-500 text-white rounded-xl hover:bg-teal-600 transition-colors shadow-sm shrink-0" onClick={addItem} aria-label="Add task">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          </button>
+    <div className="grid gap-5 xl:grid-cols-[360px_1fr] animate-[fadeIn_0.4s_ease-out]">
+      <aside className="panel p-5 sm:p-6 xl:sticky xl:top-32 xl:self-start">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-black uppercase tracking-[0.18em] text-zinc-400">Task engine</div>
+            <h2 className="mt-1 text-3xl font-black tracking-tight text-zinc-950 dark:text-white">Smart Queue</h2>
+          </div>
+          <div className="rounded-2xl bg-zinc-950 px-3 py-2 text-sm font-black text-white dark:bg-white dark:text-zinc-950">{completion}%</div>
         </div>
-        <div className="flex gap-2 flex-wrap items-center">
-          <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 focus:outline-none" value={newPriority} onChange={e => setNewPriority(e.target.value)}>
-            <option value="Low">Low Priority</option>
-            <option value="Medium">Medium Priority</option>
-            <option value="High">High Priority</option>
-          </select>
-          <input type="datetime-local" className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 focus:outline-none" value={newDeadline} onChange={e => setNewDeadline(e.target.value)} />
+
+        <div className="mt-6 h-3 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-white/10">
+          <div className="h-full rounded-full bg-[linear-gradient(90deg,#14b8a6,#0ea5e9)] transition-all duration-700" style={{ width: `${completion}%` }} />
         </div>
-      </div>
 
-      {/* Filters */}
-      <div className="flex gap-2 overflow-x-auto pb-4 mb-2 hide-scrollbar">
-        <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-700 dark:text-slate-300 focus:outline-none shrink-0" value={filter} onChange={e => setFilter(e.target.value)}>
-          <option value="all">All Tasks</option>
-          <option value="active">Active Only</option>
-          <option value="done">Completed</option>
-        </select>
-      </div>
-
-      {/* Task List */}
-      <div className="flex flex-col gap-3">
-        {shown.length === 0 && <div className="text-center py-10 text-slate-500 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl">No tasks found. Enjoy your day!</div>}
-        {shown.map(item => {
-          const isOverdue = item.deadline && !item.done && new Date(item.deadline) < new Date();
-          return (
-            <div key={item.id} className={`flex flex-col gap-3 p-4 bg-white dark:bg-slate-900 border rounded-2xl transition-all ${item.done ? 'border-slate-200 dark:border-slate-800 opacity-60 bg-slate-50 dark:bg-slate-900/50' : 'border-slate-200 dark:border-slate-700 hover:border-teal-300 dark:hover:border-teal-700 hover:shadow-md'} ${pulseId === item.id ? 'ring-2 ring-green-500 scale-[1.02]' : ''}`}>
-              <div className="flex items-center gap-4">
-                <input type="checkbox" className="w-5 h-5 rounded border-slate-300 text-teal-500 focus:ring-teal-500 cursor-pointer shrink-0" checked={item.done} onChange={() => toggle(item.id)} />
-                <input className={`flex-1 bg-transparent border-none outline-none font-medium text-lg ${item.done ? 'line-through text-slate-500' : 'text-slate-900 dark:text-white'}`} value={item.text} onChange={e => edit(item.id, e.target.value)} placeholder="Task description..." />
-                
-                {/* Priority Badge */}
-                {!item.done && (
-                   <select 
-                     className={`text-xs font-bold px-2 py-1 rounded border outline-none cursor-pointer appearance-none shrink-0 text-center ${priorityColors[item.priority || 'Medium']}`}
-                     value={item.priority || 'Medium'}
-                     onChange={e => setItem(item.id, { priority: e.target.value })}
-                   >
-                     <option value="High">High</option>
-                     <option value="Medium">Medium</option>
-                     <option value="Low">Low</option>
-                   </select>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 pl-9">
-                {/* Deadline Input */}
-                <input 
-                  type="datetime-local" 
-                  className={`w-[180px] bg-slate-50 dark:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 rounded-lg px-2.5 py-1 text-sm focus:bg-white dark:focus:bg-slate-900 focus:border-teal-500 focus:outline-none transition-colors ${isOverdue ? 'text-red-500 font-bold' : 'text-slate-500'}`} 
-                  value={formatDateTime(item.deadline)} 
-                  onChange={e => setItem(item.id, { deadline: e.target.value })} 
-                />
-
-                <button className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors ml-auto" onClick={() => remove(item.id)} title="Delete task">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-                </button>
-              </div>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          {metrics.map(metric => (
+            <div key={metric.label} className="metric-card">
+              <div className={`mb-3 h-2 w-8 rounded-full ${metric.dot}`} />
+              <div className="text-3xl font-black text-zinc-950 dark:text-white">{metric.value}</div>
+              <div className="text-xs font-black uppercase tracking-[0.14em] text-zinc-400">{metric.label}</div>
             </div>
-          );
-        })}
-      </div>
-      
-      {celebrate && (
-        <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
-          <div className="w-[50vw] h-[50vw] rounded-full bg-[radial-gradient(circle,rgba(34,197,94,0.3)_0%,transparent_60%)] animate-[burst_0.8s_ease-out_forwards]"></div>
+          ))}
         </div>
-      )}
+
+        <div className="mt-6 panel-soft p-3">
+          <div className="mb-3 text-xs font-black uppercase tracking-[0.18em] text-zinc-400">Create task</div>
+          <div className="space-y-3">
+            <input className="control w-full" placeholder="What needs to be done?" value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addItem(); }} />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
+              <select className="control w-full" value={newPriority} onChange={e => setNewPriority(e.target.value)}>
+                <option value="High">High Priority</option>
+                <option value="Medium">Medium Priority</option>
+                <option value="Low">Low Priority</option>
+              </select>
+              <input type="datetime-local" className="control w-full" value={newDeadline} onChange={e => setNewDeadline(e.target.value)} />
+            </div>
+            <button className="primary-button w-full" onClick={addItem}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add to queue
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <section className="panel p-5 sm:p-6">
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-sm font-black uppercase tracking-[0.18em] text-zinc-400">Auto sorted by priority and deadline</div>
+            <h1 className="mt-1 text-3xl font-black tracking-tight text-zinc-950 dark:text-white">Tasks</h1>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <select className="control" value={filter} onChange={e => setFilter(e.target.value)}>
+              <option value="all">All Tasks</option>
+              <option value="active">Active Only</option>
+              <option value="done">Completed</option>
+            </select>
+            <button className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black text-rose-600 transition hover:bg-rose-100 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-300" onClick={clearCompleted}>Clear Completed</button>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {shown.length === 0 && <div className="panel-soft grid min-h-56 place-items-center p-6 text-center"><div><div className="text-2xl font-black text-zinc-950 dark:text-white">No tasks found</div><div className="mt-2 text-sm font-semibold text-zinc-500">Create a task to start the queue.</div></div></div>}
+          {shown.map(item => {
+            const due = dueState(item);
+            return (
+              <div key={item.id} className={`rounded-2xl border p-4 transition-all ${item.done ? 'border-zinc-200 bg-zinc-50/75 opacity-70 dark:border-white/10 dark:bg-white/[0.025]' : 'border-zinc-200 bg-white/82 hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg dark:border-white/10 dark:bg-white/[0.045] dark:hover:border-teal-400/40'} ${pulseId === item.id ? 'ring-4 ring-emerald-500/25' : ''}`}>
+                <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto_auto] sm:items-center">
+                  <input type="checkbox" className="h-5 w-5 rounded border-zinc-300 text-teal-500 focus:ring-teal-500" checked={item.done} onChange={() => toggle(item.id)} />
+                  <input className={`min-w-0 bg-transparent text-lg font-black outline-none ${item.done ? 'text-zinc-400 line-through' : 'text-zinc-950 dark:text-white'}`} value={item.text} onChange={e => edit(item.id, e.target.value)} placeholder="Task description" />
+                  {!item.done && (
+                    <select className={`w-full rounded-xl border px-3 py-2 text-xs font-black outline-none sm:w-28 ${priorityColors[item.priority || 'Medium']}`} value={item.priority || 'Medium'} onChange={e => setItem(item.id, { priority: e.target.value })}>
+                      <option value="High">High</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Low">Low</option>
+                    </select>
+                  )}
+                  <button className="icon-button justify-self-start text-zinc-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-500/10" onClick={() => remove(item.id)} title="Delete task">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3 sm:pl-8">
+                  <span className={`text-xs font-black uppercase tracking-[0.14em] ${due.tone}`}>{due.label}</span>
+                  <input type="datetime-local" className="control max-w-[220px] py-1.5 text-xs" value={formatDateTime(item.deadline)} onChange={e => setItem(item.id, { deadline: e.target.value })} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {celebrate && <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"><div className="h-[50vw] w-[50vw] animate-[burst_0.8s_ease-out_forwards] rounded-full bg-[radial-gradient(circle,rgba(16,185,129,0.30)_0%,transparent_60%)]" /></div>}
     </div>
   );
 }

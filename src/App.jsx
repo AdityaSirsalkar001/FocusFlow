@@ -1,16 +1,47 @@
-import React, { useEffect, useState, Suspense, lazy } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, Suspense, lazy } from 'react';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
+import HomeEager from './components/Home.jsx';
+import FocusTimerEager from './components/FocusTimer.jsx';
+import TodoListEager from './components/TodoList.jsx';
+import NotesEager from './components/Notes.jsx';
+import DayPlannerEager from './components/DayPlanner.jsx';
+import AnalyticsEager from './components/Analytics.jsx';
+import SettingsEager from './components/Settings.jsx';
+import ProfileEager from './components/Profile.jsx';
 
-// Lazy Load all the main tab components
-const Home = lazy(() => import('./components/Home.jsx'));
-const FocusTimer = lazy(() => import('./components/FocusTimer.jsx'));
-const TodoList = lazy(() => import('./components/TodoList.jsx'));
-const Notes = lazy(() => import('./components/Notes.jsx'));
-const DayPlanner = lazy(() => import('./components/DayPlanner.jsx'));
-const Analytics = lazy(() => import('./components/Analytics.jsx'));
-const Settings = lazy(() => import('./components/Settings.jsx'));
-const Profile = lazy(() => import('./components/Profile.jsx'));
+const componentLoaders = {
+  home: () => import('./components/Home.jsx'),
+  focus: () => import('./components/FocusTimer.jsx'),
+  tasks: () => import('./components/TodoList.jsx'),
+  notes: () => import('./components/Notes.jsx'),
+  planner: () => import('./components/DayPlanner.jsx'),
+  analytics: () => import('./components/Analytics.jsx'),
+  settings: () => import('./components/Settings.jsx'),
+  profile: () => import('./components/Profile.jsx'),
+};
+
+const lazyComponents = {
+  home: lazy(componentLoaders.home),
+  focus: lazy(componentLoaders.focus),
+  tasks: lazy(componentLoaders.tasks),
+  notes: lazy(componentLoaders.notes),
+  planner: lazy(componentLoaders.planner),
+  analytics: lazy(componentLoaders.analytics),
+  settings: lazy(componentLoaders.settings),
+  profile: lazy(componentLoaders.profile),
+};
+
+const eagerComponents = {
+  home: HomeEager,
+  focus: FocusTimerEager,
+  tasks: TodoListEager,
+  notes: NotesEager,
+  planner: DayPlannerEager,
+  analytics: AnalyticsEager,
+  settings: SettingsEager,
+  profile: ProfileEager,
+};
 
 const tabs = [
   { key: 'home', label: 'Home', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> },
@@ -27,14 +58,28 @@ const tabs = [
 function LoadingFallback() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center min-h-[50vh] gap-4">
-      <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-      <div className="text-sm font-medium text-slate-400">Loading module...</div>
+      <div className="w-8 h-8 border-4 border-zinc-200 border-t-teal-500 rounded-full animate-spin dark:border-zinc-800 dark:border-t-teal-400"></div>
+      <div className="text-sm font-semibold text-zinc-400">Loading workspace...</div>
+    </div>
+  );
+}
+
+function ActiveWorkspace({ tab, lazyLoading, goTo }) {
+  const Component = (lazyLoading ? lazyComponents : eagerComponents)[tab] || eagerComponents.home;
+
+  return (
+    <div key={tab} className="animate-[pageSlide_0.36s_cubic-bezier(.2,.8,.2,1)]">
+      <Component goTo={goTo} />
     </div>
   );
 }
 
 export default function App() {
   const [tab, setTab] = useState(() => localStorage.getItem('prodapp:tab') || 'home');
+  const [lazyLoading, setLazyLoading] = useState(() => localStorage.getItem('prodapp:lazy-loading') !== 'false');
+  const navRef = useRef(null);
+  const tabRefs = useRef({});
+  const [navPill, setNavPill] = useState({ left: 4, width: 44, opacity: 0 });
   
   function selectTab(k) { 
     setTab(k); 
@@ -46,59 +91,114 @@ export default function App() {
     document.title = `FocusFlow — ${current}`;
   }, [tab]);
 
+  useEffect(() => {
+    function onLazyLoadingChange(e) {
+      setLazyLoading(!!e.detail?.enabled);
+    }
+
+    window.addEventListener('focusflow:lazy-loading-change', onLazyLoadingChange);
+    return () => window.removeEventListener('focusflow:lazy-loading-change', onLazyLoadingChange);
+  }, []);
+
   const [paletteOpen, setPaletteOpen] = useState(false);
 
+  useLayoutEffect(() => {
+    function updatePill() {
+      const nav = navRef.current;
+      const active = tabRefs.current[tab];
+      if (!nav || !active) return;
+      setNavPill({
+        left: active.offsetLeft,
+        width: active.offsetWidth,
+        opacity: 1,
+      });
+    }
+
+    updatePill();
+    const frame = requestAnimationFrame(updatePill);
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updatePill) : null;
+    if (navRef.current && resizeObserver) resizeObserver.observe(navRef.current);
+    window.addEventListener('resize', updatePill);
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updatePill);
+    };
+  }, [tab]);
+
   return (
-    <div className="max-w-7xl mx-auto p-4 md:p-8 min-h-screen flex flex-col gap-8">
-      <header className="flex flex-wrap items-center justify-between gap-4 p-4 md:px-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] shadow-sm">
-        <div className="flex items-center gap-2 text-xl font-extrabold text-slate-900 dark:text-white">
-          <span className="text-blue-600 dark:text-blue-500">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 3c4.97 0 9 4.03 9 9s-4.03 9-9 9S3 16.97 3 12 7.03 3 12 3z" opacity="0.2"/><path d="M6 12c2.5-2.2 5.5-2.2 8 0 2.5 2.2 5.5 2.2 8 0" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round"/></svg>
-          </span> 
-          FocusFlow
+    <div className="mx-auto flex min-h-screen w-full max-w-[1480px] flex-col gap-5 px-3 py-3 sm:px-5 lg:px-7 lg:py-6">
+      <header className="app-surface sticky top-3 z-40 flex flex-col gap-4 rounded-[1.6rem] px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-zinc-950 text-white shadow-xl shadow-zinc-950/15 dark:bg-white dark:text-zinc-950">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 13.5c2.55-3.1 5.55-3.1 8.1 0 2.53 3.08 5.32 3.08 7.9 0" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"/><path d="M6.5 7.5h11" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"/></svg>
+            </span>
+            <div>
+              <div className="text-lg font-black tracking-tight text-zinc-950 dark:text-white">FocusFlow</div>
+              <div className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-400">Priority workspace</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 lg:hidden">
+            <button 
+              className="icon-button" 
+              onClick={() => setPaletteOpen(true)} 
+              title="Command Palette (Cmd/Ctrl + K)"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </button>
+            <ThemeToggle />
+          </div>
         </div>
         
-        <nav className="flex flex-wrap gap-2 overflow-x-auto hide-scrollbar">
+        <nav ref={navRef} className="relative isolate flex gap-1.5 overflow-x-auto rounded-2xl border border-zinc-200/70 bg-zinc-100/60 p-1 hide-scrollbar dark:border-white/10 dark:bg-white/[0.04]">
+          <span
+            className="nav-active-pill"
+            style={{
+              opacity: navPill.opacity,
+              width: `${navPill.width}px`,
+              transform: `translateX(${navPill.left}px)`,
+            }}
+          />
           {tabs.map(t => (
             <button 
               key={t.key} 
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-full font-medium text-sm transition-all duration-200 ${
+              ref={node => { tabRefs.current[t.key] = node; }}
+              className={`relative z-10 flex min-w-11 items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-extrabold transition-[color,transform] duration-300 ${
                 tab === t.key 
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
-                  : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                  ? 'text-zinc-950 dark:text-zinc-950' 
+                  : 'text-zinc-500 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white'
               }`}
               onClick={() => selectTab(t.key)}
+              title={t.label}
             >
               <span>{t.icon}</span>
-              <span className="hidden md:inline">{t.label}</span>
+              <span className="hidden xl:inline">{t.label}</span>
             </button>
           ))}
         </nav>
 
-        <div className="flex items-center gap-2">
+        <div className="hidden items-center gap-2 lg:flex">
           <button 
-            className="p-2 rounded-xl text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors" 
+            className="icon-button" 
             onClick={() => setPaletteOpen(true)} 
             title="Command Palette (Cmd/Ctrl + K)"
           >
-             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </button>
           <ThemeToggle />
         </div>
       </header>
 
-      {/* The Suspense wrapper handles the loading state while the lazy component is fetched */}
-      <main className="flex-1 animate-[fadeIn_0.3s_ease-out]">
-        <Suspense fallback={<LoadingFallback />}>
-          {tab === 'home' && <Home goTo={selectTab} />}
-          {tab === 'focus' && <FocusTimer />}
-          {tab === 'tasks' && <TodoList />}
-          {tab === 'notes' && <Notes />}
-          {tab === 'planner' && <DayPlanner />}
-          {tab === 'analytics' && <Analytics />}
-          {tab === 'settings' && <Settings />}
-          {tab === 'profile' && <Profile />}
-        </Suspense>
+      <main className="flex-1">
+        {lazyLoading ? (
+          <Suspense fallback={<LoadingFallback />}>
+            <ActiveWorkspace tab={tab} lazyLoading={lazyLoading} goTo={selectTab} />
+          </Suspense>
+        ) : (
+          <ActiveWorkspace tab={tab} lazyLoading={lazyLoading} goTo={selectTab} />
+        )}
       </main>
       
       <CommandPalette open={paletteOpen} onClose={(v)=> setPaletteOpen(!!v)} goTo={selectTab} />

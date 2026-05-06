@@ -31,7 +31,7 @@ export default function Notes() {
   const selected = notes.find(n => n.id === selectedId) || null;
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm h-[calc(100vh-140px)] flex flex-col">
+    <div className="panel p-6 md:p-8 h-[calc(100vh-140px)] flex flex-col">
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Notes</h3>
         <div className="flex gap-3 flex-1 max-w-md">

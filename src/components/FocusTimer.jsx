@@ -122,7 +122,7 @@ export default function FocusTimer() {
         </div>
       )}
 
-      <div className={`relative z-10 w-full max-w-2xl flex flex-col ${isFs ? 'bg-transparent border-none items-center' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm p-6 md:p-8'}`}>
+      <div className={`relative z-10 w-full max-w-2xl flex flex-col ${isFs ? 'bg-transparent border-none items-center' : 'panel p-6 md:p-8'}`}>
         {!isFs && (
            <div className="flex justify-between items-center mb-8">
              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Focus Space</h3>

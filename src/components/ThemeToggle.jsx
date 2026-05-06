@@ -12,7 +12,7 @@ export default function ThemeToggle() {
 
   return (
     <button 
-      className="p-2 rounded-xl text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors" 
+      className="icon-button" 
       onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
       aria-label="Toggle theme"
     >
