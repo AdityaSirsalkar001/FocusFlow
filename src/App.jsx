@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState, Suspense, lazy } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, Suspense, lazy, useTransition } from 'react';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import HomeEager from './components/Home.jsx';
@@ -54,7 +54,6 @@ const tabs = [
   { key: 'profile', label: 'Profile', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> }
 ];
 
-// Simple loading skeleton while components fetch
 function LoadingFallback() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center min-h-[50vh] gap-4">
@@ -64,26 +63,27 @@ function LoadingFallback() {
   );
 }
 
+const preloadComponent = (key) => componentLoaders[key]?.();
+
 function ActiveWorkspace({ tab, lazyLoading, goTo }) {
   const Component = (lazyLoading ? lazyComponents : eagerComponents)[tab] || eagerComponents.home;
-
-  return (
-    <div key={tab} className="animate-[pageSlide_0.36s_cubic-bezier(.2,.8,.2,1)]">
-      <Component goTo={goTo} />
-    </div>
-  );
+  return <div key={tab}><Component goTo={goTo} /></div>;
 }
 
 export default function App() {
   const [tab, setTab] = useState(() => localStorage.getItem('prodapp:tab') || 'home');
   const [lazyLoading, setLazyLoading] = useState(() => localStorage.getItem('prodapp:lazy-loading') !== 'false');
+  const [isPending, startTransition] = useTransition();
   const navRef = useRef(null);
   const tabRefs = useRef({});
   const [navPill, setNavPill] = useState({ left: 4, width: 44, opacity: 0 });
+  const [paletteOpen, setPaletteOpen] = useState(false);
   
   function selectTab(k) { 
-    setTab(k); 
-    localStorage.setItem('prodapp:tab', k); 
+    startTransition(() => {
+      setTab(k); 
+      localStorage.setItem('prodapp:tab', k); 
+    });
   }
 
   useEffect(() => {
@@ -92,38 +92,24 @@ export default function App() {
   }, [tab]);
 
   useEffect(() => {
-    function onLazyLoadingChange(e) {
-      setLazyLoading(!!e.detail?.enabled);
-    }
-
+    function onLazyLoadingChange(e) { setLazyLoading(!!e.detail?.enabled); }
     window.addEventListener('focusflow:lazy-loading-change', onLazyLoadingChange);
     return () => window.removeEventListener('focusflow:lazy-loading-change', onLazyLoadingChange);
   }, []);
-
-  const [paletteOpen, setPaletteOpen] = useState(false);
 
   useLayoutEffect(() => {
     function updatePill() {
       const nav = navRef.current;
       const active = tabRefs.current[tab];
       if (!nav || !active) return;
-      setNavPill({
-        left: active.offsetLeft,
-        width: active.offsetWidth,
-        opacity: 1,
-      });
+      setNavPill({ left: active.offsetLeft, width: active.offsetWidth, opacity: 1 });
     }
-
     updatePill();
     const frame = requestAnimationFrame(updatePill);
     const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updatePill) : null;
     if (navRef.current && resizeObserver) resizeObserver.observe(navRef.current);
     window.addEventListener('resize', updatePill);
-    return () => {
-      cancelAnimationFrame(frame);
-      resizeObserver?.disconnect();
-      window.removeEventListener('resize', updatePill);
-    };
+    return () => { cancelAnimationFrame(frame); resizeObserver?.disconnect(); window.removeEventListener('resize', updatePill); };
   }, [tab]);
 
   return (
@@ -139,59 +125,32 @@ export default function App() {
               <div className="text-xs font-bold uppercase tracking-[0.18em] text-zinc-400">Priority workspace</div>
             </div>
           </div>
-
           <div className="flex items-center gap-2 lg:hidden">
-            <button 
-              className="icon-button" 
-              onClick={() => setPaletteOpen(true)} 
-              title="Command Palette (Cmd/Ctrl + K)"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            </button>
+            <button className="icon-button" onClick={() => setPaletteOpen(true)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
             <ThemeToggle />
           </div>
         </div>
-        
         <nav ref={navRef} className="relative isolate flex gap-1.5 overflow-x-auto rounded-2xl border border-zinc-200/70 bg-zinc-100/60 p-1 hide-scrollbar dark:border-white/10 dark:bg-white/[0.04]">
-          <span
-            className="nav-active-pill"
-            style={{
-              opacity: navPill.opacity,
-              width: `${navPill.width}px`,
-              transform: `translateX(${navPill.left}px)`,
-            }}
-          />
+          <span className="nav-active-pill" style={{ opacity: navPill.opacity, width: `${navPill.width}px`, transform: `translateX(${navPill.left}px)` }}/>
           {tabs.map(t => (
             <button 
               key={t.key} 
               ref={node => { tabRefs.current[t.key] = node; }}
-              className={`relative z-10 flex min-w-11 items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-extrabold transition-[color,transform] duration-300 ${
-                tab === t.key 
-                  ? 'text-zinc-950 dark:text-zinc-950' 
-                  : 'text-zinc-500 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white'
-              }`}
+              onMouseEnter={() => preloadComponent(t.key)}
+              className={`relative z-10 flex min-w-11 items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-extrabold transition-[color,transform] duration-200 ${tab === t.key ? 'text-zinc-950 dark:text-zinc-950' : 'text-zinc-500 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white'}`}
               onClick={() => selectTab(t.key)}
-              title={t.label}
             >
               <span>{t.icon}</span>
               <span className="hidden xl:inline">{t.label}</span>
             </button>
           ))}
         </nav>
-
         <div className="hidden items-center gap-2 lg:flex">
-          <button 
-            className="icon-button" 
-            onClick={() => setPaletteOpen(true)} 
-            title="Command Palette (Cmd/Ctrl + K)"
-          >
-             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          </button>
+          <button className="icon-button" onClick={() => setPaletteOpen(true)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
           <ThemeToggle />
         </div>
       </header>
-
-      <main className="flex-1">
+      <main className={`flex-1 transition-opacity duration-150 ${isPending ? 'opacity-60' : 'opacity-100'}`}>
         {lazyLoading ? (
           <Suspense fallback={<LoadingFallback />}>
             <ActiveWorkspace tab={tab} lazyLoading={lazyLoading} goTo={selectTab} />
@@ -200,7 +159,6 @@ export default function App() {
           <ActiveWorkspace tab={tab} lazyLoading={lazyLoading} goTo={selectTab} />
         )}
       </main>
-      
       <CommandPalette open={paletteOpen} onClose={(v)=> setPaletteOpen(!!v)} goTo={selectTab} />
     </div>
   );
